@@ -1,0 +1,989 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "14d713ae-85fc-4fe1-9041-964afbc91649",
+      "name": "Chat Trigger",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -464,
+        2048
+      ],
+      "webhookId": "1ea5f3d7-1f43-49f6-a334-4721e3e5bf10"
+    },
+    {
+      "parameters": {
+        "jsCode": "// GUARDRAIL, FILTRO ANTI-BUCLE Y EXTRACCIÓN DE SESIÓN\nconst input = $input.item.json.chatInput || $input.item.json.action || \"\";\nconst sessionId = $input.item.json.sessionId || \"session_default\";\nconst userName = $input.item.json.userName || \"Cliente\";\nconst userEmail = $input.item.json.userEmail || $input.item.json.email || \"\";\n\n// 1. Filtro Anti-Bucle (Auto-reply / No-reply)\nconst autoReplyPatterns = [/auto-reply/i, /out of office/i, /undeliverable/i, /no-reply@/i];\nif (autoReplyPatterns.some(pattern => pattern.test(input) || pattern.test(userEmail))) {\n  throw new Error(\"Guardrail Block: Mensaje automático detectado (Auto-reply / No-reply). Bucle neutralizado.\");\n}\n\n// 2. Validación de longitud mínima\nif (input.trim().length < 2) {\n  throw new Error(\"Guardrail Block: El mensaje es demasiado corto.\");\n}\n\n// 3. Prevención de Prompt Injection\nconst forbiddenTerms = [\"ignore previous instructions\", \"dan mode\", \"jailbreak\"];\nif (forbiddenTerms.some(term => input.toLowerCase().includes(term))) {\n  throw new Error(\"Guardrail Block: Intento de Prompt Injection detectado.\");\n}\n\nreturn {\n  json: {\n    chatInput: input.trim(),\n    sessionId: sessionId,\n    userName: userName,\n    userEmail: userEmail,\n    guardrailPassed: true\n  }\n};"
+      },
+      "id": "7e7f41e2-dcab-4d8f-baef-7568572e5ec1",
+      "name": "Guardrail Code1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        2032
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = ($input.item.json.chatInput || \"\").trim();\n\nconst phoneMatch = text.match(/\\b\\d{7,15}\\b/);\nconst contacto = phoneMatch ? phoneMatch[0] : null;\n\nconst emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}/);\nconst extractedEmail = emailMatch ? emailMatch[0] : ($input.item.json.userEmail || null);\n\nconst nameMatch = text.match(/(?:soy|me llamo|mi nombre es)\\s+([a-záéíóúñ]+)/i);\nlet nombre = nameMatch ? nameMatch[1] : null;\nif (nombre) {\n  nombre = nombre.charAt(0).toUpperCase() + nombre.slice(1).toLowerCase();\n}\n\nlet tipoOperacion = \"Consulta General\";\nconst textLower = text.toLowerCase();\n\nif (/(alquilar|alquiler|rentar|renta)/i.test(textLower)) {\n  tipoOperacion = \"Alquiler\";\n} else if (/(vender|venta|ofrezco mi propiedad|vendo)/i.test(textLower)) {\n  tipoOperacion = \"Venta\";\n} else if (/(comprar|compra|quiero una|busco una|interesa comprar)/i.test(textLower)) {\n  tipoOperacion = \"Compra\";\n} else if (/(informacion|información|consulta|saber mas|info)/i.test(textLower)) {\n  tipoOperacion = \"Información\";\n}\n\nconst propertyMatch = text.match(/(?:casa|departamento|depto|terreno|lote|propiedad|local)\\b.*?(?=\\s+(?:mi|mi numero|tel|teléfono|contacto)|$)/i);\nconst propiedadInteres = propertyMatch ? propertyMatch[0].trim() : null;\n\nreturn {\n  json: {\n    nombre: nombre,\n    contacto: contacto,\n    userEmail: extractedEmail,\n    tipoOperacion: tipoOperacion,\n    propiedadInteres: propiedadInteres\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        48,
+        2032
+      ],
+      "id": "1b127d18-8026-482f-b4b1-5afaf7148550",
+      "name": "extraer datos regex"
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "apptKkqKJksk2ZKud",
+          "mode": "list",
+          "cachedResultName": "Leads Management"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbl46KgAnAeV6L8M7",
+          "mode": "list",
+          "cachedResultName": "Leads"
+        },
+        "filterByFormula": "={sessionId} = '{{ $('Guardrail Code1').item.json.sessionId }}'",
+        "options": {}
+      },
+      "id": "c6d0ed0a-a566-40aa-955e-211c37127889",
+      "name": "Airtable - Search Records",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [
+        288,
+        2032
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "bX4ifb4jWVoK2jZ9",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "check-id",
+              "leftValue": "={{ !!$('Airtable - Search Records').first()?.json?.id }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5a80aef4-7810-49ce-99d9-252693382db0",
+      "name": "IF - Usuario Recurrente?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        512,
+        2032
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "apptKkqKJksk2ZKud",
+          "mode": "list",
+          "cachedResultName": "Leads Management"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbl46KgAnAeV6L8M7",
+          "mode": "list",
+          "cachedResultName": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Nombre": "={{ $('extraer datos regex').item.json.nombre }}",
+            "Contacto": "={{ $('extraer datos regex').item.json.contacto }}",
+            "sessionId": "={{ $('Guardrail Code1').item.json.sessionId }}",
+            "Fecha de Registro": "={{ $now }}",
+            "Tipo de Operación": "={{ $('extraer datos regex').item.json.tipoOperacion }}",
+            "Propiedad de Interés": "={{ $('extraer datos regex').item.json.propiedadInteres }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "2ad103d6-ec0d-47a2-913c-eb83bcc326c7",
+      "name": "Airtable - Registrar Cliente Nuevo",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [
+        736,
+        2208
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "bX4ifb4jWVoK2jZ9",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Guardrail Code1').item.json.chatInput }}",
+        "options": {
+          "systemMessage": "=### ROL Y CONTEXTO\nEres el Agente Manager Principal Inmobiliario. Tu función es atender al cliente, cualificar sus necesidades y dirigir la interacción.\n\n### CONTEXTO DEL USUARIO\n- Nombre de usuario: {{ $('Guardrail Code1').item.json.userName }}\n- ID de Sesión: {{ $('Guardrail Code1').item.json.sessionId }}\n\n### HISTORIAL PREVIO Y RESUMEN\n<last_summary>\n{{ $('Airtable - Search Records').first()?.json?.fields?.['Resumen EJC'] || \"Sin resumen previo registrado.\" }}\n</last_summary>\n\n### INSTRUCCIONES RÍGIDAS\n1. Saluda al usuario de forma personalizada usando su nombre si está disponible.\n2. Identifica y extrae: Tipo de inmueble, Operación (Compra/Alquiler), Presupuesto, Zona y Datos de Contacto.\n3. Utiliza la información almacenada en <last_summary> para no repetir preguntas ya respondidas en sesiones anteriores.\n4. Mantén tus respuestas en español con un tono profesional, servicial y directo."
+        }
+      },
+      "id": "de5e6799-e9f2-4bb8-be64-05ee8c451e54",
+      "name": "AI Agent - Manager Principal",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        960,
+        2016
+      ]
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-oss-20b",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        960,
+        2416
+      ],
+      "id": "22075ea6-044a-4cc9-b4f5-8f3db319a087",
+      "name": "Groq Chat Model",
+      "credentials": {
+        "groqApi": {
+          "id": "TVc5INsmPFZVsvlK",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Chat Trigger').item.json.sessionId }}",
+        "contextWindowLength": 8
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.4,
+      "position": [
+        1072,
+        2272
+      ],
+      "id": "5e0ede84-6825-436b-b12d-dbb97b65a564",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json;\nconst history = body.messages || body.history || [];\n\nreturn {\n  json: {\n    ...body,\n    totalMensajes: Array.isArray(history) ? history.length : 0,\n    superaLimite: (Array.isArray(history) ? history.length : 0) > 5\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1456,
+        2160
+      ],
+      "id": "4c169ec6-d91c-4ad9-a66a-b877d57898a1",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "718ea06a-e3d6-4693-955b-02d101d80a8b",
+              "leftValue": "={{ $json.totalMensajes }}",
+              "rightValue": 5,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1312,
+        2016
+      ],
+      "id": "395e23ca-8915-4f7e-aacc-36910ed4e64f",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Analiza la conversación actual y genera un objeto JSON estricto con la siguiente estructura de resumen:\n\n{\n  \"asunto_principal\": \"<Resumen breve de la intención del cliente en una frase>\",\n  \"puntos_clave\": [\n    \"<Punto 1: Tipo de inmueble u operación>\",\n    \"<Punto 2: Presupuesto o zona de interés>\",\n    \"<Punto 3: Estado de cualificación o datos de contacto proporcionados>\"\n  ],\n  \"accion_requerida\": \"<Siguiente paso claro para el equipo comercial o el bot>\"\n}\n\nREGLAS DE SALIDA:\n- Responde ÚNICAMENTE con la estructura JSON requerida.\n- El campo \"puntos_clave\" DEBE ser obligatoriamente un Array de cadenas de texto.\n\nEntrada a analizar:\n{{ $('AI Agent - Manager Principal').first().json.output }}",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        1728,
+        1664
+      ],
+      "id": "afbb82db-79d5-4a9f-9838-6ef654af62f0",
+      "name": "Basic LLM Chain"
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-oss-20b",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        1712,
+        1936
+      ],
+      "id": "ce87380e-e24f-4cc9-b79e-20771715a5c7",
+      "name": "Groq Chat Model4",
+      "credentials": {
+        "groqApi": {
+          "id": "TVc5INsmPFZVsvlK",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "base": {
+          "__rl": true,
+          "value": "apptKkqKJksk2ZKud",
+          "mode": "list",
+          "cachedResultName": "Leads Management"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbl46KgAnAeV6L8M7",
+          "mode": "list",
+          "cachedResultName": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "sessionId": "={{ $('Guardrail Code1').first().json.sessionId }}",
+            "Nombre": "={{ $('extraer datos regex').item.json.nombre }}",
+            "Contacto": "={{ $('extraer datos regex').item.json.contacto }}",
+            "Tipo de Operación": "={{ $('extraer datos regex').item.json.tipoOperacion }}",
+            "Propiedad de Interés": "={{ $('extraer datos regex').item.json.propiedadInteres }}",
+            "Fecha de Registro": "={{ $now }}"
+          },
+          "matchingColumns": [
+            "sessionId"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "Nombre",
+              "displayName": "Nombre",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Contacto",
+              "displayName": "Contacto",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Tipo de Operación",
+              "displayName": "Tipo de Operación",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Propiedad de Interés",
+              "displayName": "Propiedad de Interés",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Fecha de Registro",
+              "displayName": "Fecha de Registro",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "sessionId",
+              "displayName": "sessionId",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "1cca5452-120d-4a2c-bcab-d348455a6b28",
+      "name": "Airtable - Actualizar Resumen e Idempotencia",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [
+        2128,
+        2016
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "bX4ifb4jWVoK2jZ9",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "52171b1c-6604-4e56-9445-175fb3d2cfcb",
+              "name": "chatInput",
+              "value": "={{ $('Guardrail Code1').first().json.chatInput }}",
+              "type": "string"
+            },
+            {
+              "id": "b0268905-f7b9-4e52-9f79-a88ca884aac6",
+              "name": "sessionId",
+              "value": "={{ $('Guardrail Code1').item.json.sessionId }}",
+              "type": "string"
+            },
+            {
+              "id": "c92b274f-a8f2-4f9d-8679-660ec92814a0",
+              "name": "agenteOutput",
+              "value": "={{ $('AI Agent - Manager Principal').item.json.output }}",
+              "type": "string"
+            },
+            {
+              "id": "1f55d984-5db8-482a-8a41-6460972cd38d",
+              "name": "totalMensajes",
+              "value": "={{ $('Code in JavaScript').item.json.totalMensajes }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2336,
+        2016
+      ],
+      "id": "fc29a25a-f551-4137-98f8-86d4d2368cfb",
+      "name": "Edit Fields1"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "648hHmCkXTCfAjRN",
+          "mode": "list",
+          "cachedResultName": "My Sub-Workflow 1"
+        },
+        "workflowInputs": {
+          "mappingMode": "passthrough",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2560,
+        2016
+      ],
+      "id": "61e914df-3442-4d06-a8c8-866cde1d09e3",
+      "name": "Worker 1: Extracción y Análisis de Datos1"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "tB5z42mKlfosa79F",
+          "mode": "list",
+          "cachedResultName": "My Sub-Workflow 2"
+        },
+        "workflowInputs": {
+          "mappingMode": "passthrough",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2768,
+        2016
+      ],
+      "id": "d45ab0aa-ba83-4157-9cca-8fc25cfd98f7",
+      "name": "Worker 2: Redacción y Formateo de Correo1",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "sendTo": "juanpablonpj@gmail.com",
+        "subject": "Log de Trazabilidad y Observabilidad - Multi-Agente Distribuido",
+        "emailType": "text",
+        "message": "=REPORTE DE TRAZABILIDAD EMPRESARIAL\nFecha: {{ $now.format('yyyy-MM-dd HH:mm:ss') }}\n\n1. Mensaje Recibido (Input Guardrail):\n{{ $('Guardrail Code1').first()?.json?.chatInput || \"No disponible\" }}\n\n2. Respuesta del Agente Manager:\n{{ $('AI Agent - Manager Principal').first()?.json?.output || \"No disponible\" }}\n\n3. Salida de Sub-Workflows Ejecutados:\n- Worker Analista: {{ JSON.stringify($('Worker 1: Extracción y Análisis de Datos1').first()?.json || {}) }}\n- Worker Redactor: {{ JSON.stringify($('Worker 2: Redacción y Formateo de Correo1').first()?.json || {}) }}\n\nEstado: Persistencia de largo plazo y ciclo de Summarization completados correctamente.",
+        "options": {}
+      },
+      "id": "adc71ad9-4212-4530-9495-c0599212ea56",
+      "name": "Gmail - Log de Trazabilidad1",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2992,
+        2016
+      ],
+      "webhookId": "760b417a-430e-4e1b-aa9f-ad51cf618082",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "fvZtzDc7RNyW14Iz",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "appToken",
+        "resource": "contact",
+        "operation": "get",
+        "contactId": "={{ $('extraer datos regex').first().json.userEmail || $('Guardrail Code1').first().json.userEmail || 'correo_fallback@dominio.com' }}",
+        "additionalFields": {}
+      },
+      "id": "0469cf87-907c-4f57-8eec-24db143da4e5",
+      "name": "HubSpot - Look up Contact",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 1,
+      "position": [
+        2224,
+        2384
+      ],
+      "credentials": {
+        "hubspotAppToken": {
+          "id": "GXe6MmldpIPNMgVt",
+          "name": "HubSpot account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.vid ? true : false }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "9b17441b-947f-4b3e-b8c3-32dd9b70d936",
+      "name": "IF - ¿Existe Contacto en CRM?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        2448,
+        2384
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "contact",
+        "operation": "update"
+      },
+      "id": "6a65ac6e-3e70-4d55-aa13-07c67b59b90e",
+      "name": "HubSpot - Update Contact",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 1,
+      "position": [
+        2672,
+        2272
+      ],
+      "credentials": {
+        "hubspotApi": {
+          "id": "GXe6MmldpIPNMgVt",
+          "name": "HubSpot account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "appToken",
+        "resource": "contact",
+        "email": "={{ $('extraer datos regex').item.json.userEmail || $('Guardrail Code1').item.json.userEmail || \"correo_fallback@dominio.com\" }}",
+        "additionalFields": {}
+      },
+      "id": "49b89518-ceef-4656-84a2-e2c24583b58c",
+      "name": "HubSpot - Create Contact",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 1,
+      "position": [
+        2672,
+        2496
+      ],
+      "credentials": {
+        "hubspotAppToken": {
+          "id": "GXe6MmldpIPNMgVt",
+          "name": "HubSpot account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "draft",
+        "subject": "=[Borrador Sugerido] Respuesta de Soporte: {{ $('Guardrail Code1').first()?.json?.chatInput || 'Atención al Cliente' }}",
+        "message": "==Estimado/a {{ $('extraer datos regex').first()?.json?.nombre || 'Cliente' }},\n\n{{ $('AI Agent - Manager Principal').first()?.json?.output }}\n\n---\nAtentamente,\nEquipo de Soporte Automatizado (Revisión Pendiente)",
+        "options": {}
+      },
+      "id": "d7790686-bc17-4999-9c6e-18df449488cd",
+      "name": "Gmail - Create Draft (HITL)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2896,
+        2384
+      ],
+      "webhookId": "ef94d7c9-431c-48f1-843c-d64181db6ca4",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "fvZtzDc7RNyW14Iz",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "cleanSummary",
+              "value": "={{ $('AI Agent - Manager Principal').first()?.json?.output?.substring(0, 300) || \"Sin resumen disponible\" }}"
+            },
+            {
+              "name": "clientName",
+              "value": "={{ $('extraer datos regex').first()?.json?.nombre || $('Guardrail Code1').first()?.json?.userName || \"Cliente\" }}"
+            },
+            {
+              "name": "clientEmail",
+              "value": "={{ $('extraer datos regex').first()?.json?.userEmail || $('Guardrail Code1').first()?.json?.userEmail || \"No provisto\" }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c1a2f588-1828-4181-9f10-bc992fe54e9b",
+      "name": "Set - Payload Sanitizer for Slack",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        2384
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "={{ 'npj' }}",
+          "mode": "id"
+        },
+        "text": "=:bell: *NUEVO EVENTO PROCESADO EN AGENTE DE SOPORTE*\n*Cliente:* {{ $json.clientName }} ({{ $json.clientEmail }})\n*Resumen de Interacción:* {{ $json.cleanSummary }}\n*Estado Gmail:* Borrador generado correctamente para revisión.",
+        "otherOptions": {}
+      },
+      "id": "f41aeed7-cb50-453a-8b29-64530625c762",
+      "name": "Slack - Notify Operations Channel",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        3344,
+        2384
+      ],
+      "webhookId": "300fa3ec-ae77-45aa-8c77-22bfe79d9e7b",
+      "credentials": {
+        "slackApi": {
+          "id": "wTLR6AT3x9oaDmrB",
+          "name": "Slack account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Chat Trigger": {
+      "main": [
+        [
+          {
+            "node": "Guardrail Code1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardrail Code1": {
+      "main": [
+        [
+          {
+            "node": "extraer datos regex",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "extraer datos regex": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Search Records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Search Records": {
+      "main": [
+        [
+          {
+            "node": "IF - Usuario Recurrente?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Usuario Recurrente?": {
+      "main": [
+        [
+          {
+            "node": "AI Agent - Manager Principal",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Airtable - Registrar Cliente Nuevo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Registrar Cliente Nuevo": {
+      "main": [
+        [
+          {
+            "node": "AI Agent - Manager Principal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent - Manager Principal": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent - Manager Principal",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent - Manager Principal",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Airtable - Actualizar Resumen e Idempotencia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Actualizar Resumen e Idempotencia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model4": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Actualizar Resumen e Idempotencia": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HubSpot - Look up Contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "Worker 1: Extracción y Análisis de Datos1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Worker 1: Extracción y Análisis de Datos1": {
+      "main": [
+        [
+          {
+            "node": "Worker 2: Redacción y Formateo de Correo1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Worker 2: Redacción y Formateo de Correo1": {
+      "main": [
+        [
+          {
+            "node": "Gmail - Log de Trazabilidad1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HubSpot - Look up Contact": {
+      "main": [
+        [
+          {
+            "node": "IF - ¿Existe Contacto en CRM?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - ¿Existe Contacto en CRM?": {
+      "main": [
+        [
+          {
+            "node": "HubSpot - Update Contact",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HubSpot - Create Contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HubSpot - Update Contact": {
+      "main": [
+        [
+          {
+            "node": "Gmail - Create Draft (HITL)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HubSpot - Create Contact": {
+      "main": [
+        [
+          {
+            "node": "Gmail - Create Draft (HITL)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail - Create Draft (HITL)": {
+      "main": [
+        [
+          {
+            "node": "Set - Payload Sanitizer for Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set - Payload Sanitizer for Slack": {
+      "main": [
+        [
+          {
+            "node": "Slack - Notify Operations Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "1b3350b71c36c7011f648effea794ea9dc469111e13cc22e938379e25d637312"
+  }
+}
